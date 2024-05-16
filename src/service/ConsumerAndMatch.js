@@ -114,70 +114,63 @@ const matchRecords = (disparos, retornos) => {
 
 const matchRecordsDelayed = (disparos, retornos) => {
     try {
-        const matched = [];
+        const matched = []
         const groupedByMessageId = retornos.reduce((acc, retorno) => {
             if (retorno.pdu && retorno.pdu.short_message && retorno.pdu.short_message.message) {
-                const parsedMessage = parseShortMessage(retorno.pdu.short_message.message);
+                const parsedMessage = parseShortMessage(retorno.pdu.short_message.message)
                 if (parsedMessage && parsedMessage.messageId) {
-                    acc[parsedMessage.messageId] = acc[parsedMessage.messageId] || [];
+                    acc[parsedMessage.messageId] = acc[parsedMessage.messageId] || []
                     acc[parsedMessage.messageId].push({
                         ...retorno,
                         parsedMessage,
                         receiptDate: new Date(retorno.receiptDate)
-                    });
+                    })
                 }
             }
-            return acc;
-        }, {});
+            return acc
+        }, {})
 
         Object.keys(groupedByMessageId).forEach(messageId => {
-            const disparo = disparos.find(d => d.messageId === messageId);
-            if (disparo && isDateThreeDaysOlder(disparo.dispatchDate)) {
-                const validRetornos = groupedByMessageId[messageId].filter(retorno =>
-                    isDateThreeDaysOlder(retorno.receiptDate) && retorno.esm_class !== 8
-                );
+            const disparo = disparos.find(d => d.messageId === messageId)
+            if (disparo) {
+                const dispatchDate = new Date(disparo.dispatchDate)
+                const validRetornos = groupedByMessageId[messageId].filter(retorno => {
+                    const timeDiff = retorno.receiptDate.getTime() - dispatchDate.getTime()
+                    return timeDiff > 259200000
+                })
 
                 if (validRetornos.length > 0) {
-                    matched.push({ disparo, retornos: validRetornos });
+                    matched.push({ disparo, retornos: validRetornos })
                 }
             }
-        });
+        })
 
-        logger.info(`Encontrados ${matched.length} registros casados com atraso de 3 dias ou mais.`);
-        return matched;
+        logger.info(`Encontrados ${matched.length} registros casados com atraso de 3 dias ou mais.`)
+        return matched
     } catch (error) {
-        logger.error(`Erro ao fazer o casamento de registros atrasados: ${error.message}`);
-        return [];
+        logger.error(`Erro ao fazer o casamento de registros atrasados:${error.message}`)
+        return []
     }
-};
-
-const isDateThreeDaysOlder = (date) => {
-    const currentDate = new Date();
-    const givenDate = new Date(date);
-    const diffInTime = currentDate.getTime() - givenDate.getTime();
-    const diffInDays = diffInTime / (1000 * 3600 * 24);
-    return diffInDays > 3;
-};
-
+}
 
 const saveMatchedRecords = async (matchedRecords) => {
     try {
         const recordsToSave = matchedRecords.map(({ disparo, retornos }) => {
-            const ap_retorno = retornos.find(ret => ret.esm_class === 4 && ret.parsedMessage.status === 'ENROUTE');
-            const op_retorno = retornos.find(ret => ret.esm_class === 4 && ret.parsedMessage.status !== 'ENROUTE');
-            const tm_retorno = retornos.find(ret => ret.esm_class === 8);
+            const ap_retorno = retornos.filter(ret => ret.esm_class === 4 && ret.parsedMessage.status === 'ENROUTE');
+            const op_retorno = retornos.filter(ret => ret.esm_class === 4 && ret.parsedMessage.status !== 'ENROUTE');
+            const tm_retorno = retornos.filter(ret => ret.esm_class === 8);
 
             return {
                 disparo,
-                ap_retorno: ap_retorno ? formatRetorno(ap_retorno) : undefined,
-                op_retorno: op_retorno ? formatRetorno(op_retorno) : undefined,
-                tm_retorno: tm_retorno ? formatRetorno(tm_retorno) : undefined
+                ap_retorno: ap_retorno.length > 0 ? formatRetorno(ap_retorno[0]) : undefined,
+                op_retorno: op_retorno.length > 0 ? formatRetorno(op_retorno[0]) : undefined,
+                tm_retorno: tm_retorno.length > 0 ? formatRetorno(tm_retorno[0]) : undefined
             };
         }).filter(record =>
             record.disparo &&
             record.ap_retorno &&
             record.op_retorno &&
-            !record.tm_retorno // Certificar que não há tm_retorno com esm_class = 8
+            record.tm_retorno
         );
 
         if (recordsToSave.length > 0) {
@@ -190,7 +183,6 @@ const saveMatchedRecords = async (matchedRecords) => {
         logger.error(`Erro ao salvar registros casados: ${error.message}`);
     }
 };
-
 
 
 const formatRetorno = (retorno) => {
